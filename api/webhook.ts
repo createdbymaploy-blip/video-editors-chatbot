@@ -1,6 +1,14 @@
 import { Telegraf } from 'telegraf';
 import { GoogleGenAI, Type } from '@google/genai';
 
+// === НАСТРОЙКА ПОВЕДЕНИЯ НЕЙРОСЕТИ (ПРОМПТ) ===
+// Здесь ты можешь менять характер бота, указывать ему, как общаться и что считать вопросом по монтажу.
+const SYSTEM_PROMPT = `ты — опытный видеомонтажер и помощник в чате для монтажеров. 
+ты отвечаешь на вопросы новичков и профи. 
+твои ответы всегда краткие, по делу, без воды, без приветствий и прощаний.
+ты пишешь СТРОГО маленькими буквами (в нижнем регистре), как будто общаешься в телеграме с друзьями.
+ты разбираешься в Premiere Pro, After Effects, DaVinci Resolve, железе для монтажа (ПК против Mac, процессоры, видеокарты), плагинах, рендере и поиске клиентов.`;
+
 // --- Данные FAQ встроены прямо сюда для 100% надежности на Vercel ---
 const seedData = [
   {
@@ -122,7 +130,7 @@ bot.start(async (ctx) => {
 });
 
 bot.command('ping', async (ctx) => {
-  await ctx.reply('понг! я работаю на самой последней версии кода (v4 - с генерацией ответов на любые вопросы по монтажу).');
+  await ctx.reply('понг! я работаю на самой последней версии кода (v5 - с настройкой промпта и увеличенными лимитами).');
 });
 
 bot.command('debug', async (ctx) => {
@@ -141,15 +149,14 @@ bot.on('text', async (ctx) => {
 
     const faqListText = seedData.map(f => `${f.id}. ${f.question}`).join('\n');
     
-    const prompt = `You are a helpful assistant in a chat for video editors.
-Your task is to analyze the following user message and decide how to respond based on these rules:
+    const prompt = `Your task is to analyze the following user message and decide how to respond based on these rules:
 
 1. Check if the user's question conceptually matches one of our FAQ items.
 FAQ Items:
 ${faqListText}
 
 2. If it matches an FAQ, set "matched_id" to the FAQ's ID.
-3. If it DOES NOT match any FAQ, check if the question is about video editing, filmmaking, motion graphics, or related software (Premiere Pro, After Effects, DaVinci, etc.). Set "is_video_editing_related" to true or false.
+3. If it DOES NOT match any FAQ, check if the question is related to video editing. This includes: software (Premiere, AE, DaVinci), hardware (PC vs Mac, CPU, GPU, RAM), rendering, plugins, finding clients, or general filmmaking. Set "is_video_editing_related" to true or false.
 4. If "is_video_editing_related" is true (and no FAQ matched), generate a brief, direct, and helpful answer to the user's question. The answer MUST be in Russian, strictly in lowercase letters, without any introductory fluff or water. Set this as "generated_answer".
 5. If the message is completely unrelated to video editing and doesn't match an FAQ, set "matched_id" to 0, "is_video_editing_related" to false, and "generated_answer" to an empty string.
 
@@ -158,9 +165,10 @@ User message: "${text}"
 Respond strictly in JSON format.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.5-flash', // Изменили модель на 2.5-flash, у нее 1500 запросов в день вместо 20
       contents: prompt,
       config: {
+        systemInstruction: SYSTEM_PROMPT,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
