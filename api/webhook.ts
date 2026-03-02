@@ -148,14 +148,13 @@ bot.on('text', async (ctx) => {
     if (text.length < 10) return;
     if (text.startsWith('/')) return;
 
-    // В группах фильтруем сообщения, чтобы не тратить лимиты API на обычное общение
+    // В группах фильтруем сообщения, чтобы не тратить жесткий лимит API (15 запросов в минуту) на каждое слово
     if (ctx.chat.type !== 'private') {
-      const lowerText = text.toLowerCase();
-      
       // Является ли сообщение ответом на сообщение бота?
       const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.botInfo.id;
       
-      // Содержит ли сообщение вопрос?
+      // Содержит ли сообщение знак вопроса или вопросительные слова?
+      const lowerText = text.toLowerCase();
       const isQuestion = text.includes('?') || 
                          lowerText.includes('как ') || 
                          lowerText.includes('где ') || 
@@ -164,13 +163,9 @@ bot.on('text', async (ctx) => {
                          lowerText.includes('посоветуйте ') ||
                          lowerText.includes('подскажите ');
 
-      // Содержит ли сообщение ключевые слова по монтажу?
-      const editingKeywords = ['монтаж', 'премьер', 'афтер', 'давинчи', 'пк', 'мак', 'клиент', 'заказ', 'плагин', 'рендер', 'видео', 'рилс', 'ютуб', 'premiere', 'after effects', 'davinci', 'reels', 'shorts', 'youtube', 'ае'];
-      const hasEditingKeyword = editingKeywords.some(kw => lowerText.includes(kw));
-
-      // Если это не ответ боту, и (не вопрос ИЛИ нет ключевых слов), то игнорируем
-      if (!isReplyToBot && !(isQuestion && hasEditingKeyword)) {
-        return; // Игнорируем обычный флуд
+      // Если это не ответ боту и не похоже на вопрос, игнорируем, чтобы ИИ не анализировал флуд
+      if (!isReplyToBot && !isQuestion) {
+        return; 
       }
     }
 
@@ -188,14 +183,14 @@ ${faqListText}
 2. If it matches an FAQ, set "matched_id" to the FAQ's ID.
 3. If it DOES NOT match any FAQ, check if the question is related to video editing. This includes: software (Premiere, AE, DaVinci), hardware (PC vs Mac, CPU, GPU, RAM), rendering, plugins, finding clients, or general filmmaking. Set "is_video_editing_related" to true or false.
 4. If "is_video_editing_related" is true (and no FAQ matched), generate a brief, direct, and helpful answer to the user's question. The answer MUST be in Russian, strictly in lowercase letters, without any introductory fluff or water. Set this as "generated_answer".
-5. If the message is completely unrelated to video editing and doesn't match an FAQ, set "matched_id" to 0, "is_video_editing_related" to false, and "generated_answer" to an empty string.
+5. If the message is completely unrelated to video editing, just chatting, or doesn't make sense to answer, set "matched_id" to 0, "is_video_editing_related" to false, and "generated_answer" to an empty string. DO NOT answer general knowledge questions outside of video editing.
 
 User message: "${text}"
 
 Respond strictly in JSON format.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Изменили модель на 2.5-flash, у нее 1500 запросов в день вместо 20
+      model: 'gemini-3-flash-preview', // Используем самую современную и быструю модель
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_PROMPT,
@@ -237,7 +232,10 @@ Respond strictly in JSON format.`;
     
     // 2. Выводим ошибку только в личные сообщения, чтобы не спамить в группе
     if (errorMessage.includes('429') || errorMessage.includes('Quota exceeded')) {
-      await ctx.reply('я получаю слишком много вопросов одновременно. гугл ограничил мне доступ на пару минут 🥲 подождите немного и спросите снова.', { reply_parameters: { message_id: ctx.message.message_id } });
+      if (ctx.chat.type === 'private') {
+        await ctx.reply('я получаю слишком много вопросов одновременно. гугл ограничил мне доступ на пару минут 🥲 подождите немного и спросите снова.', { reply_parameters: { message_id: ctx.message.message_id } });
+      }
+      // В группе просто молчим, чтобы не спамить ошибками
     } else if (ctx.chat.type === 'private') {
       await ctx.reply(`⚠️ Техническая ошибка ИИ: ${errorMessage}`);
     }
