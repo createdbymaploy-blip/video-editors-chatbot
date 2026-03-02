@@ -10,7 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "start": "node server.ts",
-    "set-webhook": "node -e \"require('node-fetch')('https://api.telegram.org/bot8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ/setWebhook?url=YOUR_VERCEL_URL/api/webhook').then(r=>r.json()).then(console.log)\""
+    "set-webhook": "node -e \"require('node-fetch')('https://api.telegram.org/bot8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ/setWebhook?url=https://video-editors-chatbot.vercel.app//api/webhook').then(r=>r.json()).then(console.log)\""
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
