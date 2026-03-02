@@ -107,7 +107,7 @@ const seedData = [
 
 // --- Инициализация ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyASosTGFgupzItfK0G9VUJgWNrpwQS-Yg8';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyBcGkJv5ENdJjg3sL4DR3OULG6lny-oFrI';
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const bot = new Telegraf(TELEGRAM_TOKEN);
@@ -122,7 +122,7 @@ bot.start(async (ctx) => {
 });
 
 bot.command('ping', async (ctx) => {
-  await ctx.reply('понг! я работаю на самой последней версии кода (v3 - с защитой от багов).');
+  await ctx.reply('понг! я работаю на самой последней версии кода (v4 - с генерацией ответов на любые вопросы по монтажу).');
 });
 
 bot.command('debug', async (ctx) => {
@@ -142,14 +142,19 @@ bot.on('text', async (ctx) => {
     const faqListText = seedData.map(f => `${f.id}. ${f.question}`).join('\n');
     
     const prompt = `You are a helpful assistant in a chat for video editors.
-Your task is to analyze the following user message and determine if it is asking a question that is conceptually similar to one of our FAQ items.
+Your task is to analyze the following user message and decide how to respond based on these rules:
 
+1. Check if the user's question conceptually matches one of our FAQ items.
 FAQ Items:
 ${faqListText}
 
+2. If it matches an FAQ, set "matched_id" to the FAQ's ID.
+3. If it DOES NOT match any FAQ, check if the question is about video editing, filmmaking, motion graphics, or related software (Premiere Pro, After Effects, DaVinci, etc.). Set "is_video_editing_related" to true or false.
+4. If "is_video_editing_related" is true (and no FAQ matched), generate a brief, direct, and helpful answer to the user's question. The answer MUST be in Russian, strictly in lowercase letters, without any introductory fluff or water. Set this as "generated_answer".
+5. If the message is completely unrelated to video editing and doesn't match an FAQ, set "matched_id" to 0, "is_video_editing_related" to false, and "generated_answer" to an empty string.
+
 User message: "${text}"
 
-If the user is asking about one of these topics (even if phrased differently), return its ID. If the message is completely unrelated to any FAQ, return 0.
 Respond strictly in JSON format.`;
 
     const response = await ai.models.generateContent({
@@ -160,9 +165,11 @@ Respond strictly in JSON format.`;
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            matched_id: { type: Type.INTEGER, description: "The ID of the matched FAQ, or 0 if no match" }
+            matched_id: { type: Type.INTEGER, description: "The ID of the matched FAQ, or 0 if no match" },
+            is_video_editing_related: { type: Type.BOOLEAN, description: "True if the message is about video editing" },
+            generated_answer: { type: Type.STRING, description: "Brief answer in lowercase Russian if no FAQ matched but it is related to video editing" }
           },
-          required: ["matched_id"]
+          required: ["matched_id", "is_video_editing_related", "generated_answer"]
         }
       }
     });
@@ -176,10 +183,13 @@ Respond strictly in JSON format.`;
         if (faq) {
           await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
         }
+      } else if (result.is_video_editing_related && result.generated_answer) {
+        // Нейронка сама сгенерировала ответ на вопрос по монтажу
+        await ctx.reply(result.generated_answer, { reply_parameters: { message_id: ctx.message.message_id } });
       } else {
-        // Если ИИ решил, что совпадений нет, отвечаем только в личке (чтобы не спамить в группах)
+        // Если ИИ решил, что совпадений нет и это не про монтаж, отвечаем только в личке (чтобы не спамить в группах)
         if (ctx.chat.type === 'private') {
-          await ctx.reply('я прочитал твой вопрос, но не нашел подходящего ответа в своей базе данных. попробуй переформулировать.', { reply_parameters: { message_id: ctx.message.message_id } });
+          await ctx.reply('я прочитал твой вопрос, но он не относится к монтажу или я не знаю на него ответа.', { reply_parameters: { message_id: ctx.message.message_id } });
         }
       }
     }
