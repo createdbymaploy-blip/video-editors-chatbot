@@ -148,6 +148,32 @@ bot.on('text', async (ctx) => {
     if (text.length < 10) return;
     if (text.startsWith('/')) return;
 
+    // В группах фильтруем сообщения, чтобы не тратить лимиты API на обычное общение
+    if (ctx.chat.type !== 'private') {
+      const lowerText = text.toLowerCase();
+      
+      // Является ли сообщение ответом на сообщение бота?
+      const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.botInfo.id;
+      
+      // Содержит ли сообщение вопрос?
+      const isQuestion = text.includes('?') || 
+                         lowerText.includes('как ') || 
+                         lowerText.includes('где ') || 
+                         lowerText.includes('почему ') || 
+                         lowerText.includes('что лучше ') ||
+                         lowerText.includes('посоветуйте ') ||
+                         lowerText.includes('подскажите ');
+
+      // Содержит ли сообщение ключевые слова по монтажу?
+      const editingKeywords = ['монтаж', 'премьер', 'афтер', 'давинчи', 'пк', 'мак', 'клиент', 'заказ', 'плагин', 'рендер', 'видео', 'рилс', 'ютуб', 'premiere', 'after effects', 'davinci', 'reels', 'shorts', 'youtube', 'ае'];
+      const hasEditingKeyword = editingKeywords.some(kw => lowerText.includes(kw));
+
+      // Если это не ответ боту, и (не вопрос ИЛИ нет ключевых слов), то игнорируем
+      if (!isReplyToBot && !(isQuestion && hasEditingKeyword)) {
+        return; // Игнорируем обычный флуд
+      }
+    }
+
     // 1. Показываем статус "печатает...", чтобы было понятно, что бот принял сообщение и думает
     await ctx.sendChatAction('typing');
 
@@ -207,9 +233,13 @@ Respond strictly in JSON format.`;
     }
   } catch (e: any) {
     console.error("AI Error:", e);
+    const errorMessage = e.message || '';
+    
     // 2. Выводим ошибку только в личные сообщения, чтобы не спамить в группе
-    if (ctx.chat.type === 'private') {
-      await ctx.reply(`⚠️ Техническая ошибка ИИ: ${e.message}`);
+    if (errorMessage.includes('429') || errorMessage.includes('Quota exceeded')) {
+      await ctx.reply('я получаю слишком много вопросов одновременно. гугл ограничил мне доступ на пару минут 🥲 подождите немного и спросите снова.', { reply_parameters: { message_id: ctx.message.message_id } });
+    } else if (ctx.chat.type === 'private') {
+      await ctx.reply(`⚠️ Техническая ошибка ИИ: ${errorMessage}`);
     }
   }
 });
