@@ -124,6 +124,9 @@ if (!TELEGRAM_TOKEN || !GEMINI_API_KEY) {
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
+// Простой кэш для обработанных сообщений (чтобы избежать дублей от Telegram)
+const processedMessages = new Set<number>();
+
 // --- Логика бота ---
 bot.start(async (ctx) => {
   try {
@@ -144,7 +147,19 @@ bot.command('debug', async (ctx) => {
 bot.on('text', async (ctx) => {
   try {
     const text = ctx.message.text;
+    const messageId = ctx.message.message_id;
     
+    // Защита от дублей (Telegram может повторять вебхуки, если ответ долгий)
+    if (processedMessages.has(messageId)) {
+      return;
+    }
+    processedMessages.add(messageId);
+    // Очищаем старые сообщения, чтобы не забивать память (оставляем последние 1000)
+    if (processedMessages.size > 1000) {
+      const firstItem = processedMessages.values().next().value;
+      if (firstItem !== undefined) processedMessages.delete(firstItem);
+    }
+
     if (text.length < 10) return;
     if (text.startsWith('/')) return;
 
@@ -190,7 +205,7 @@ User message: "${text}"
 Respond strictly in JSON format.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Используем самую современную и быструю модель
+      model: 'gemini-flash-latest', // Используем стабильную модель для лучших лимитов
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_PROMPT,
@@ -230,8 +245,41 @@ Respond strictly in JSON format.`;
     console.error("AI Error:", e);
     const errorMessage = e.message || '';
     
-    // 2. Выводим ошибку только в личные сообщения, чтобы не спамить в группе
+    // Если ИИ отвалился по лимитам, пробуем ответить локально (по ключевым словам)
     if (errorMessage.includes('429') || errorMessage.includes('Quota exceeded')) {
+      const lowerText = ctx.message.text.toLowerCase();
+      let matchedId = 0;
+      
+      if (lowerText.includes('клиент') || lowerText.includes('заказ')) matchedId = 1;
+      else if (lowerText.includes('цен') || lowerText.includes('прайс') || lowerText.includes('скольк')) matchedId = 2;
+      else if (lowerText.includes('с чего начат') || lowerText.includes('старт')) matchedId = 3;
+      else if (lowerText.includes('программ') || lowerText.includes('капкат') || lowerText.includes('capcut') || lowerText.includes('premiere') || lowerText.includes('davinci')) matchedId = 4;
+      else if (lowerText.includes('желез') || lowerText.includes('процессор') || lowerText.includes('видеокарт') || lowerText.includes('озу')) matchedId = 5;
+      else if (lowerText.includes('пк') || lowerText.includes('мак') || lowerText.includes('macbook')) matchedId = 6;
+      else if (lowerText.includes('исходник') || lowerText.includes('тренировк') || lowerText.includes('практик')) matchedId = 7;
+      else if (lowerText.includes('портфолио')) matchedId = 8;
+      else if (lowerText.includes('рассылк')) matchedId = 9;
+      else if (lowerText.includes('бесплатн') || lowerText.includes('тестов')) matchedId = 10;
+      else if (lowerText.includes('лага') || lowerText.includes('тормоз')) matchedId = 11;
+      else if (lowerText.includes('перенос') || lowerText.includes('из премьер')) matchedId = 12;
+      else if (lowerText.includes('ошибк') || lowerText.includes('краш') || lowerText.includes('вылета')) matchedId = 13;
+      else if (lowerText.includes('плавн')) matchedId = 14;
+      else if (lowerText.includes('скачать') || lowerText.includes('взлом') || lowerText.includes('пиратк') || lowerText.includes('торрент')) matchedId = 15;
+      else if (lowerText.includes('3d') && lowerText.includes('черный')) matchedId = 16;
+      else if (lowerText.includes('3d') || lowerText.includes('blender') || lowerText.includes('cinema')) matchedId = 17;
+      else if (lowerText.includes('английск') || lowerText.includes('язык')) matchedId = 18;
+      else if (lowerText.includes('плагин')) matchedId = 19;
+      else if (lowerText.includes('рилс') || lowerText.includes('ютуб') || lowerText.includes('вертикал') || lowerText.includes('горизонтал')) matchedId = 20;
+
+      if (matchedId > 0) {
+        const faq = seedData.find(f => f.id === matchedId);
+        if (faq) {
+          await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
+          return; // Успешно ответили локально
+        }
+      }
+
+      // Если локально не нашли, выводим ошибку только в личные сообщения
       if (ctx.chat.type === 'private') {
         await ctx.reply('я получаю слишком много вопросов одновременно. гугл ограничил мне доступ на пару минут 🥲 подождите немного и спросите снова.', { reply_parameters: { message_id: ctx.message.message_id } });
       }
