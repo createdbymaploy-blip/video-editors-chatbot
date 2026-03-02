@@ -1,0 +1,5 @@
+{
+  "name": "Video Editors Chat Bot",
+  "description": "A Telegram bot that monitors a chat for video editors and answers common questions using a knowledge base and Gemini AI.",
+  "requestFramePermissions": []
+}
