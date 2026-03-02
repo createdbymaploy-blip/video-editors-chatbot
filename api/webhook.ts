@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { GoogleGenAI, Type } from '@google/genai';
-import { getAllFaqs, getFaqById } from './db';
+import { getAllFaqs, getFaqById } from '../src/server/db';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyArZyDsJpOF89prIuigSST5uOzGFCvL6QI';
