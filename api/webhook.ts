@@ -137,7 +137,7 @@ bot.start(async (ctx) => {
 });
 
 bot.command('ping', async (ctx) => {
-  await ctx.reply('понг! я работаю на самой последней версии кода (v6 - умный контекст, бытовые вопросы и точный поиск по базе).');
+  await ctx.reply('понг! я работаю на самой последней версии кода (v7 - полный анализ контекста, распознавание риторических вопросов).');
 });
 
 bot.command('debug', async (ctx) => {
@@ -171,11 +171,15 @@ bot.on('text', async (ctx) => {
     // В группах фильтруем сообщения, чтобы не тратить лимит API
     if (!isDirectlyAddressed) {
       const lowerText = text.toLowerCase();
-      const hasKeywords = ['монтаж', 'премьер', 'premiere', 'after effects', 'ае', 'капкат', 'capcut', 'davinci', 'давинчи', 'рендер', 'плагин', 'исходник', 'портфолио', 'заказ', 'клиент', 'пк', 'мак', 'macbook', 'видеокарт', 'процессор'].some(kw => lowerText.includes(kw));
-      const isQuestion = text.includes('?');
+      // Широкий список триггеров, чтобы ловить вопросы новичков, даже если они без знака вопроса
+      const isPotentiallyRelevant = [
+        'монтаж', 'премьер', 'premiere', 'after effects', 'ае', 'капкат', 'capcut', 
+        'davinci', 'давинчи', 'рендер', 'плагин', 'исходник', 'портфолио', 'заказ', 
+        'клиент', 'пк', 'мак', 'macbook', 'видеокарт', 'процессор', 'как', 'где', 
+        'почему', 'посоветуйте', 'подскажите', 'что лучше', 'с чего начать', 'помогите', '?'
+      ].some(kw => lowerText.includes(kw));
       
-      // Если это не ответ боту и не упоминание, реагируем только на вопросы по монтажу
-      if (!(hasKeywords && isQuestion)) {
+      if (!isPotentiallyRelevant) {
         return; 
       }
     }
@@ -183,20 +187,31 @@ bot.on('text', async (ctx) => {
     // 1. Показываем статус "печатает...", чтобы было понятно, что бот принял сообщение и думает
     await ctx.sendChatAction('typing');
 
+    // Добавляем контекст предыдущего сообщения, если это ответ (reply)
+    let contextText = '';
+    if (ctx.message.reply_to_message && 'text' in ctx.message.reply_to_message) {
+      contextText = `\nКонтекст (предыдущее сообщение, на которое отвечает пользователь):\n"${ctx.message.reply_to_message.text}"\n`;
+    }
+
     // Передаем ИИ не только вопросы, но и ответы, чтобы он точно понимал смысл каждого FAQ
     const faqListText = seedData.map(f => `ID: ${f.id}\nВопрос: ${f.question}\nОтвет: ${f.answer}\n`).join('\n');
     
-    const prompt = `Проанализируй сообщение пользователя и реши, как ответить.
+    const prompt = `Ты — опытный видеомонтажер и помощник в чате. Твоя задача — проанализировать новое сообщение пользователя и решить, нужно ли на него отвечать.
 
-1. Проверь, подходит ли вопрос под один из наших FAQ.
+Правила:
+1. Отвечай ТОЛЬКО если это реальный вопрос, требующий помощи (по монтажу, программам, железу, поиску клиентов и т.д.), ИЛИ если пользователь обращается напрямую к тебе (задает бытовой вопрос, здоровается).
+2. ИГНОРИРУЙ (возвращай should_answer: false), если:
+   - Это риторический вопрос.
+   - Это просто утверждение или мысли вслух.
+   - Пользователь общается с кем-то другим и помощь бота не требуется.
+   - Вопрос вообще не связан с видеомонтажом (и при этом не адресован лично тебе).
+3. Если ты решил ответить, проверь, совпадает ли вопрос со смыслом одного из FAQ. Если да, укажи "matched_id" равным ID этого FAQ.
 Список FAQ:
 ${faqListText}
+4. Если подходящего FAQ нет, но ответить нужно, сгенерируй ответ сам и запиши в "generated_answer".
+5. Твой сгенерированный ответ ДОЛЖЕН быть на русском языке, СТРОГО маленькими буквами (в нижнем регистре), без приветствий, максимально четко, понятно, без воды, как короткое сообщение в мессенджере от профи.
 
-2. Если вопрос идеально совпадает со смыслом FAQ (например, вопрос "где скачать проги" -> это ID 15, а "в чем монтировать" -> это ID 4), укажи "matched_id" равным ID этого FAQ.
-3. Если подходящего FAQ нет, сгенерируй ответ сам и запиши в "generated_answer".
-4. Твой сгенерированный ответ ДОЛЖЕН быть на русском языке, СТРОГО маленькими буквами (в нижнем регистре), без приветствий, как короткое сообщение в мессенджере.
-5. Если пользователь задает бытовой вопрос (например "как дела", "кто ты", "помоги"), просто ответь ему в таком же стиле, поддерживая диалог.
-
+${contextText}
 Сообщение пользователя: "${text}"
 
 Ответь СТРОГО в формате JSON.`;
@@ -210,25 +225,34 @@ ${faqListText}
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            should_answer: { type: Type.BOOLEAN, description: "Нужно ли отвечать на это сообщение" },
             matched_id: { type: Type.INTEGER, description: "ID совпадающего FAQ, или 0 если нет совпадения" },
             generated_answer: { type: Type.STRING, description: "Сгенерированный ответ маленькими буквами, если FAQ не найден" }
           },
-          required: ["matched_id", "generated_answer"]
+          required: ["should_answer", "matched_id", "generated_answer"]
         }
       }
     });
 
     if (response.text) {
-      const result = JSON.parse(response.text);
-      const matchedId = Number(result.matched_id);
+      let jsonStr = response.text.trim();
+      if (jsonStr.startsWith('\`\`\`json')) jsonStr = jsonStr.slice(7);
+      if (jsonStr.startsWith('\`\`\`')) jsonStr = jsonStr.slice(3);
+      if (jsonStr.endsWith('\`\`\`')) jsonStr = jsonStr.slice(0, -3);
       
-      if (matchedId > 0) {
-        const faq = seedData.find(f => f.id === matchedId);
-        if (faq) {
-          await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
+      const result = JSON.parse(jsonStr.trim());
+      
+      if (result.should_answer) {
+        const matchedId = Number(result.matched_id);
+        
+        if (matchedId > 0) {
+          const faq = seedData.find(f => f.id === matchedId);
+          if (faq) {
+            await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
+          }
+        } else if (result.generated_answer) {
+          await ctx.reply(result.generated_answer, { reply_parameters: { message_id: ctx.message.message_id } });
         }
-      } else if (result.generated_answer) {
-        await ctx.reply(result.generated_answer, { reply_parameters: { message_id: ctx.message.message_id } });
       }
     }
   } catch (e: any) {
