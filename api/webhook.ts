@@ -107,7 +107,7 @@ const seedData = [
 
 // --- Инициализация ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyArZyDsJpOF89prIuigSST5uOzGFCvL6QI';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyASosTGFgupzItfK0G9VUJgWNrpwQS-Yg8';
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const bot = new Telegraf(TELEGRAM_TOKEN);
@@ -185,8 +185,10 @@ Respond strictly in JSON format.`;
     }
   } catch (e: any) {
     console.error("AI Error:", e);
-    // 2. Выводим ошибку прямо в чат! Если ключ не работает или ИИ тупит, мы это сразу увидим.
-    await ctx.reply(`⚠️ Техническая ошибка ИИ: ${e.message}`);
+    // 2. Выводим ошибку только в личные сообщения, чтобы не спамить в группе
+    if (ctx.chat.type === 'private') {
+      await ctx.reply(`⚠️ Техническая ошибка ИИ: ${e.message}`);
+    }
   }
 });
 
