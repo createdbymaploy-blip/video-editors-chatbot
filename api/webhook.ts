@@ -121,6 +121,14 @@ bot.start(async (ctx) => {
   }
 });
 
+bot.command('ping', async (ctx) => {
+  await ctx.reply('понг! я работаю на самой последней версии кода (v3 - с защитой от багов).');
+});
+
+bot.command('debug', async (ctx) => {
+  await ctx.reply(`тест базы данных. всего вопросов: ${seedData.length}. первый вопрос: ${seedData[0].question.toLowerCase()}`);
+});
+
 bot.on('text', async (ctx) => {
   try {
     const text = ctx.message.text;
@@ -128,17 +136,20 @@ bot.on('text', async (ctx) => {
     if (text.length < 10) return;
     if (text.startsWith('/')) return;
 
+    // 1. Показываем статус "печатает...", чтобы было понятно, что бот принял сообщение и думает
+    await ctx.sendChatAction('typing');
+
     const faqListText = seedData.map(f => `${f.id}. ${f.question}`).join('\n');
     
     const prompt = `You are a helpful assistant in a chat for video editors.
-Your task is to analyze the following user message and determine if it is asking a question that matches one of our FAQ items.
+Your task is to analyze the following user message and determine if it is asking a question that is conceptually similar to one of our FAQ items.
 
 FAQ Items:
 ${faqListText}
 
 User message: "${text}"
 
-If the user is asking about one of these topics, return its ID. If not, return null.
+If the user is asking about one of these topics (even if phrased differently), return its ID. If the message is completely unrelated to any FAQ, return 0.
 Respond strictly in JSON format.`;
 
     const response = await ai.models.generateContent({
@@ -149,23 +160,33 @@ Respond strictly in JSON format.`;
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            matched_id: { type: Type.NUMBER, description: "The ID of the matched FAQ, or null if no match" }
-          }
+            matched_id: { type: Type.INTEGER, description: "The ID of the matched FAQ, or 0 if no match" }
+          },
+          required: ["matched_id"]
         }
       }
     });
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      if (result.matched_id) {
-        const faq = seedData.find(f => f.id === result.matched_id);
+      const matchedId = Number(result.matched_id);
+      
+      if (matchedId > 0) {
+        const faq = seedData.find(f => f.id === matchedId);
         if (faq) {
           await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
         }
+      } else {
+        // Если ИИ решил, что совпадений нет, отвечаем только в личке (чтобы не спамить в группах)
+        if (ctx.chat.type === 'private') {
+          await ctx.reply('я прочитал твой вопрос, но не нашел подходящего ответа в своей базе данных. попробуй переформулировать.', { reply_parameters: { message_id: ctx.message.message_id } });
+        }
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("AI Error:", e);
+    // 2. Выводим ошибку прямо в чат! Если ключ не работает или ИИ тупит, мы это сразу увидим.
+    await ctx.reply(`⚠️ Техническая ошибка ИИ: ${e.message}`);
   }
 });
 
