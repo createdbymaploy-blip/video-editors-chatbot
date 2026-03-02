@@ -137,7 +137,7 @@ bot.start(async (ctx) => {
 });
 
 bot.command('ping', async (ctx) => {
-  await ctx.reply('понг! я работаю на самой последней версии кода (v5 - с настройкой промпта и увеличенными лимитами).');
+  await ctx.reply('понг! я работаю на самой последней версии кода (v6 - умный контекст, бытовые вопросы и точный поиск по базе).');
 });
 
 bot.command('debug', async (ctx) => {
@@ -160,26 +160,22 @@ bot.on('text', async (ctx) => {
       if (firstItem !== undefined) processedMessages.delete(firstItem);
     }
 
-    if (text.length < 10) return;
+    if (text.length < 2) return;
     if (text.startsWith('/')) return;
 
-    // В группах фильтруем сообщения, чтобы не тратить жесткий лимит API (15 запросов в минуту) на каждое слово
-    if (ctx.chat.type !== 'private') {
-      // Является ли сообщение ответом на сообщение бота?
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.botInfo.id;
-      
-      // Содержит ли сообщение знак вопроса или вопросительные слова?
-      const lowerText = text.toLowerCase();
-      const isQuestion = text.includes('?') || 
-                         lowerText.includes('как ') || 
-                         lowerText.includes('где ') || 
-                         lowerText.includes('почему ') || 
-                         lowerText.includes('что лучше ') ||
-                         lowerText.includes('посоветуйте ') ||
-                         lowerText.includes('подскажите ');
+    const isPrivate = ctx.chat.type === 'private';
+    const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.botInfo.id;
+    const isMentioned = text.includes(`@${ctx.botInfo.username}`);
+    const isDirectlyAddressed = isPrivate || isReplyToBot || isMentioned;
 
-      // Если это не ответ боту и не похоже на вопрос, игнорируем, чтобы ИИ не анализировал флуд
-      if (!isReplyToBot && !isQuestion) {
+    // В группах фильтруем сообщения, чтобы не тратить лимит API
+    if (!isDirectlyAddressed) {
+      const lowerText = text.toLowerCase();
+      const hasKeywords = ['монтаж', 'премьер', 'premiere', 'after effects', 'ае', 'капкат', 'capcut', 'davinci', 'давинчи', 'рендер', 'плагин', 'исходник', 'портфолио', 'заказ', 'клиент', 'пк', 'мак', 'macbook', 'видеокарт', 'процессор'].some(kw => lowerText.includes(kw));
+      const isQuestion = text.includes('?');
+      
+      // Если это не ответ боту и не упоминание, реагируем только на вопросы по монтажу
+      if (!(hasKeywords && isQuestion)) {
         return; 
       }
     }
@@ -187,25 +183,26 @@ bot.on('text', async (ctx) => {
     // 1. Показываем статус "печатает...", чтобы было понятно, что бот принял сообщение и думает
     await ctx.sendChatAction('typing');
 
-    const faqListText = seedData.map(f => `${f.id}. ${f.question}`).join('\n');
+    // Передаем ИИ не только вопросы, но и ответы, чтобы он точно понимал смысл каждого FAQ
+    const faqListText = seedData.map(f => `ID: ${f.id}\nВопрос: ${f.question}\nОтвет: ${f.answer}\n`).join('\n');
     
-    const prompt = `Your task is to analyze the following user message and decide how to respond based on these rules:
+    const prompt = `Проанализируй сообщение пользователя и реши, как ответить.
 
-1. Check if the user's question conceptually matches one of our FAQ items.
-FAQ Items:
+1. Проверь, подходит ли вопрос под один из наших FAQ.
+Список FAQ:
 ${faqListText}
 
-2. If it matches an FAQ, set "matched_id" to the FAQ's ID.
-3. If it DOES NOT match any FAQ, check if the question is related to video editing. This includes: software (Premiere, AE, DaVinci), hardware (PC vs Mac, CPU, GPU, RAM), rendering, plugins, finding clients, or general filmmaking. Set "is_video_editing_related" to true or false.
-4. If "is_video_editing_related" is true (and no FAQ matched), generate a brief, direct, and helpful answer to the user's question. The answer MUST be in Russian, strictly in lowercase letters, without any introductory fluff or water. Set this as "generated_answer".
-5. If the message is completely unrelated to video editing, just chatting, or doesn't make sense to answer, set "matched_id" to 0, "is_video_editing_related" to false, and "generated_answer" to an empty string. DO NOT answer general knowledge questions outside of video editing.
+2. Если вопрос идеально совпадает со смыслом FAQ (например, вопрос "где скачать проги" -> это ID 15, а "в чем монтировать" -> это ID 4), укажи "matched_id" равным ID этого FAQ.
+3. Если подходящего FAQ нет, сгенерируй ответ сам и запиши в "generated_answer".
+4. Твой сгенерированный ответ ДОЛЖЕН быть на русском языке, СТРОГО маленькими буквами (в нижнем регистре), без приветствий, как короткое сообщение в мессенджере.
+5. Если пользователь задает бытовой вопрос (например "как дела", "кто ты", "помоги"), просто ответь ему в таком же стиле, поддерживая диалог.
 
-User message: "${text}"
+Сообщение пользователя: "${text}"
 
-Respond strictly in JSON format.`;
+Ответь СТРОГО в формате JSON.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-flash-latest', // Используем стабильную модель для лучших лимитов
+      model: 'gemini-2.5-flash', // Используем самую стабильную и актуальную модель
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_PROMPT,
@@ -213,11 +210,10 @@ Respond strictly in JSON format.`;
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            matched_id: { type: Type.INTEGER, description: "The ID of the matched FAQ, or 0 if no match" },
-            is_video_editing_related: { type: Type.BOOLEAN, description: "True if the message is about video editing" },
-            generated_answer: { type: Type.STRING, description: "Brief answer in lowercase Russian if no FAQ matched but it is related to video editing" }
+            matched_id: { type: Type.INTEGER, description: "ID совпадающего FAQ, или 0 если нет совпадения" },
+            generated_answer: { type: Type.STRING, description: "Сгенерированный ответ маленькими буквами, если FAQ не найден" }
           },
-          required: ["matched_id", "is_video_editing_related", "generated_answer"]
+          required: ["matched_id", "generated_answer"]
         }
       }
     });
@@ -231,14 +227,8 @@ Respond strictly in JSON format.`;
         if (faq) {
           await ctx.reply(faq.answer.toLowerCase(), { reply_parameters: { message_id: ctx.message.message_id } });
         }
-      } else if (result.is_video_editing_related && result.generated_answer) {
-        // Нейронка сама сгенерировала ответ на вопрос по монтажу
+      } else if (result.generated_answer) {
         await ctx.reply(result.generated_answer, { reply_parameters: { message_id: ctx.message.message_id } });
-      } else {
-        // Если ИИ решил, что совпадений нет и это не про монтаж, отвечаем только в личке (чтобы не спамить в группах)
-        if (ctx.chat.type === 'private') {
-          await ctx.reply('я прочитал твой вопрос, но он не относится к монтажу или я не знаю на него ответа.', { reply_parameters: { message_id: ctx.message.message_id } });
-        }
       }
     }
   } catch (e: any) {
