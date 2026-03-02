@@ -114,8 +114,12 @@ const seedData = [
 ];
 
 // --- Инициализация ---
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8476391517:AAH0TNio2Xr3ZO14J58MEpcLmsCST0oWBDQ';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyBcGkJv5ENdJjg3sL4DR3OULG6lny-oFrI';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+
+if (!TELEGRAM_TOKEN || !GEMINI_API_KEY) {
+  console.error('КРИТИЧЕСКАЯ ОШИБКА: Не заданы переменные окружения TELEGRAM_BOT_TOKEN или GEMINI_API_KEY');
+}
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const bot = new Telegraf(TELEGRAM_TOKEN);
